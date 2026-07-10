@@ -3,7 +3,7 @@
 Two working experiments in putting an LLM behind a deterministic control loop - letting the model *think* at a few well-defined points while ordinary code stays
 in charge of everything that has to be reliable.
 
-Both are powered by a headless LLM CLI (the `a local LLM CLI` command), invoked
+Both are powered by a headless LLM CLI, invoked
 in-process. There are no model API keys in these projects - auth rides on the
 CLI's own login.
 
@@ -36,8 +36,7 @@ never as the thing that pulls the trigger.**
 ## Setup
 
 Each subproject has its own `.env.example`. Copy it to `.env`, fill in your
-values locally, and never commit the `.env`. Both expect the `a local LLM CLI` CLI on
-your `PATH` (`npm install -g @anthropic-ai/a local LLM CLI-code`, then `a local LLM CLI login`).
+values locally, and never commit the `.env`. Both expect a headless LLM CLI available on your `PATH`, installed and authenticated separately.
 
 ## License
 
