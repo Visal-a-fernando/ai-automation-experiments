@@ -3,7 +3,7 @@
 Two working experiments in putting an LLM behind a deterministic control loop - letting the model *think* at a few well-defined points while ordinary code stays
 in charge of everything that has to be reliable.
 
-Both are powered by a headless LLM CLI (the `claude` command), invoked
+Both are powered by a headless LLM CLI (the `the LLM CLI` command), invoked
 in-process. There are no model API keys in these projects - auth rides on the
 CLI's own login.
 
@@ -36,8 +36,8 @@ never as the thing that pulls the trigger.**
 ## Setup
 
 Each subproject has its own `.env.example`. Copy it to `.env`, fill in your
-values locally, and never commit the `.env`. Both expect the `claude` CLI on
-your `PATH` (`npm install -g @anthropic-ai/claude-code`, then `claude login`).
+values locally, and never commit the `.env`. Both expect the `the LLM CLI` CLI on
+your `PATH` (`npm install -g @anthropic-ai/the LLM CLI-code`, then `the LLM CLI login`).
 
 ## License
 
