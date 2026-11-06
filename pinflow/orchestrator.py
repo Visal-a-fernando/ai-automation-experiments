@@ -1,9 +1,10 @@
 """
 PinFlow orchestrator — the bot's spine.
 
-Control flow lives here (deterministic, debuggable). Claude is called only to
+Control flow lives here (deterministic, debuggable). The LLM is called only to
 *think* at 3 points: score candidates, write listing copy, write the SEO blog.
-Auth = your Claude Max subscription via headless `claude -p` (NO api key).
+Auth = the subscription login of a headless LLM CLI (`<cli> -p`), no API key.
+The CLI, model names and env overrides are set with the LLM_* variables below.
 
 Runs today as a DRY LOOP: research/publish are stubs, state is a local JSON
 file. Swap the TODO sections for Supabase + Shopify + a real research source
@@ -16,26 +17,30 @@ import urllib.request, urllib.parse, urllib.error
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # Windows console: allow emoji
 
 # ---------------------------------------------------------------- CONFIG
-CLAUDE_BIN   = shutil.which("claude") or "claude"        # resolves claude.cmd on Windows
+LLM_CLI      = os.environ.get("LLM_CLI", "llm")
+LLM_BIN      = shutil.which(LLM_CLI) or LLM_CLI           # resolves .cmd shims on Windows
 WORKDIR      = pathlib.Path(__file__).with_name("bot_workdir")  # clean dir => less overhead
 STATE_FILE   = pathlib.Path(__file__).with_name("state.json")
-SCORING_MODEL = "opus"      # few, high-value calls
-COPY_MODEL    = "sonnet"    # bulk copy/blog => cheaper, spares rate-limit budget
+SCORING_MODEL = os.environ.get("LLM_MODEL_SCORING", "large")   # few, high-value calls
+COPY_MODEL    = os.environ.get("LLM_MODEL_COPY", "medium")      # bulk copy/blog => cheaper, spares rate-limit budget
+FAST_MODEL    = os.environ.get("LLM_MODEL_FAST", "small")       # cheap cleanup passes
+# Env vars blanked for the CLI call so it uses its subscription login, not an API key
+LLM_CLEAR_ENV = [k for k in os.environ.get("LLM_CLEAR_ENV", "").split(",") if k.strip()]
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT  = os.environ.get("TELEGRAM_CHAT", "")
 WORKDIR.mkdir(exist_ok=True)
 
-# ---------------------------------------------------------------- CLAUDE
+# ---------------------------------------------------------------- LLM
 class AuthExpired(Exception): ...
 
-def _call_claude(prompt, model, system, max_turns=1):
+def _call_llm(prompt, model, system, max_turns=1):
     """One headless invocation. Returns the model's text (envelope .result).
 
     Prompt goes via STDIN (any length / newlines safe). The system prompt must
-    stay single-line: newlines in argv get mangled by the Windows claude.CMD shim.
+    stay single-line: newlines in argv get mangled by Windows .cmd shims.
     """
     proc = subprocess.run(
-        [CLAUDE_BIN, "-p",
+        [LLM_BIN, "-p",
          "--output-format", "json",
          "--model", model,
          "--max-turns", str(max_turns),      # answer, don't loop into tools
@@ -43,20 +48,20 @@ def _call_claude(prompt, model, system, max_turns=1):
         input=prompt,                                  # prompt via stdin, not argv
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=240, cwd=WORKDIR,                      # decode UTF-8, not cp1252
-        env={**os.environ, "ANTHROPIC_API_KEY": ""},  # force subscription auth
+        env={**os.environ, **{k.strip(): "" for k in LLM_CLEAR_ENV}},  # force subscription auth
     )
     out = proc.stdout.lstrip("﻿").strip()         # tolerate BOM
     if not out:
-        raise RuntimeError(f"claude produced no output. stderr:\n{proc.stderr[:500]}")
+        raise RuntimeError(f"LLM CLI produced no output. stderr:\n{proc.stderr[:500]}")
     env = json.loads(out)
     if env.get("api_error_status") == 401 or (
         env.get("is_error") and "authenticat" in (env.get("result") or "").lower()):
         raise AuthExpired(env.get("result"))
     if env.get("is_error"):
-        raise RuntimeError(f"claude error: {env.get('result')}")
+        raise RuntimeError(f"LLM CLI error: {env.get('result')}")
     return env["result"]
 
-def claude_json(prompt, schema_hint, model=SCORING_MODEL, retries=2):
+def llm_json(prompt, schema_hint, model=SCORING_MODEL, retries=2):
     """Reasoning call that must return JSON. Repairs invalid output up to `retries`."""
     system = ("You are a precise data function. Output ONLY valid JSON matching "
               f"this schema, no markdown fences, no prose:\n{schema_hint}")
@@ -65,7 +70,7 @@ def claude_json(prompt, schema_hint, model=SCORING_MODEL, retries=2):
         p = prompt if not last else (
             f"{prompt}\n\nYour previous output was invalid JSON:\n{last}\n"
             "Return corrected JSON only.")
-        raw = _call_claude(p, model, system)
+        raw = _call_llm(p, model, system)
         s = raw.strip().strip("`")
         if "{" in s and "}" in s:
             s = s[s.find("{"): s.rfind("}") + 1]
@@ -73,7 +78,7 @@ def claude_json(prompt, schema_hint, model=SCORING_MODEL, retries=2):
             return json.loads(s)
         except json.JSONDecodeError:
             last = raw
-    raise ValueError("Claude did not return valid JSON after retries")
+    raise ValueError("LLM did not return valid JSON after retries")
 
 NO_DASH_RULE = "Never use em dashes or en dashes anywhere; use commas or periods instead."
 
@@ -85,9 +90,9 @@ def _no_dashes(s):
         s = s.replace(f" {d} ", ", ").replace(d, ", ")
     return s.replace(" ,", ",").replace(",,", ",")
 
-def claude_text(prompt, model=COPY_MODEL):
+def llm_text(prompt, model=COPY_MODEL):
     system = "You are a brand copywriter. Return only the requested content, no preamble. " + NO_DASH_RULE
-    return _no_dashes(_call_claude(prompt, model, system))
+    return _no_dashes(_call_llm(prompt, model, system))
 
 # ---------------------------------------------------------------- STATE (swap for Supabase)
 def load_state():
@@ -219,8 +224,8 @@ def google_suggest(seed, gl=TARGET_COUNTRY, hl="en-GB"):
     except Exception as e:
         print(f"[suggest] '{seed}' failed: {e}"); return []
 
-def clean_keywords(raw, model="haiku"):
-    """Cheap Claude pass: drop non-product noise, normalize to product search terms."""
+def clean_keywords(raw, model=FAST_MODEL):
+    """Cheap LLM pass: drop non-product noise, normalize to product search terms."""
     if not raw:
         return {}
     schema = '{"terms":[{"term":"str","score":0.0}]}'
@@ -231,7 +236,7 @@ def clean_keywords(raw, model="haiku"):
               "Queries (query: score):\n"
               + "\n".join(f"- {k}: {v}" for k, v in raw.items()))
     try:
-        out = claude_json(prompt, schema, model=model)
+        out = llm_json(prompt, schema, model=model)
         cleaned = {t["term"].lower(): float(t.get("score", 0.6))
                    for t in out.get("terms", []) if t.get("term")}
         print(f"[clean] {len(raw)} raw -> {len(cleaned)} product terms")
@@ -378,7 +383,7 @@ def screen(cands, cost_ceiling=8.0):
 def score(cands):
     schema = ('{"top_3":[{"id":"str","score":0-100,"pros":["str"],"cons":["str"],'
               '"suggested_price":0.0,"angle":"str","risk_flags":["str"]}]}')
-    return claude_json(
+    return llm_json(
         f"Score these dropshipping candidates for a UK store targeting affluent buyers aged 55+, "
         f"on demand durability, competition, margin, and fit for that audience. Products with "
         f"ships='local' (UK/EU warehouse, fast delivery) are strongly preferred over ships='global' "
@@ -390,7 +395,7 @@ def make_listing(pick):
     schema = ('{"title":"str","description_html":"str","meta_title":"str",'
               '"meta_description":"str","alt_text":"str","keywords":["str"]}')
     price = retail_price(pick.get("cost", 0))
-    listing = claude_json(
+    listing = llm_json(
         f"Write a Shopify product listing for '{pick['title']}', selling at GBP {price:.2f}. "
         f"Angle: {pick['angle']}. Warm, trustworthy, benefit-led voice for UK buyers aged 55+. "
         f"description_html must be semantic HTML: a short intro <p>, then a <ul> of 4 to 6 "
@@ -495,7 +500,7 @@ def publish_blog(listing, blog_html):
     return aid
 
 def write_blog(listing):
-    return claude_text(
+    return llm_text(
         f"Write a 900-word buyer's guide blog post in English about '{listing['title']}', "
         f"targeting the keyword '{listing['keywords'][0]}'. "
         f"Return clean semantic HTML only: <h2>/<h3> subheadings, <p> paragraphs, "
@@ -542,7 +547,7 @@ def main():
               f"(product {result.get('shopify_product_id')}, blog {blog_id}, "
               f"{len(blog.split())} words)"))
     except AuthExpired:
-        alert("⚠️ PinFlow: Claude auth expired. Run claude setup-token on the host.")
+        alert("⚠️ PinFlow: LLM CLI auth expired. Sign the CLI in again on the host.")
         sys.exit("AUTH_EXPIRED")
 
 if __name__ == "__main__":
