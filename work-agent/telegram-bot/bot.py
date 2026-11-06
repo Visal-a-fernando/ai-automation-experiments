@@ -1,11 +1,11 @@
 """
 Telegram bridge for the work-agent.
 
-Each incoming Telegram message is forwarded to `claude -p` running in the
-work-agent directory, so the same skills (troubleshooting-wizard,
-ms-stack-quickref, learning-planner) that you use locally answer from your
-phone. Auth piggybacks on whatever account `claude login` used on this
-machine — typically your Max plan.
+Each incoming Telegram message is forwarded to a headless agent CLI
+(`<cli> -p`) running in the work-agent directory, so the same skills
+(troubleshooting-wizard, ms-stack-quickref, learning-planner) that you use
+locally answer from your phone. Auth piggybacks on whatever account the CLI
+is signed in with on this machine. Set the CLI with LLM_CLI.
 
 Run locally (polling), one process, one user (you).
 """
@@ -60,8 +60,8 @@ PDF_WATCH_DIRS = [
 INBOX_DIR = Path(os.environ.get("INBOX_DIR", CASE_DOC_DIR / "images"))
 INBOX_DIR.mkdir(parents=True, exist_ok=True)
 CASE_DOC_DIR.mkdir(exist_ok=True)
-CLAUDE_CLI = os.environ.get("CLAUDE_CLI", "claude")
-CLAUDE_TIMEOUT_SECONDS = int(os.environ.get("CLAUDE_TIMEOUT_SECONDS", "300"))
+LLM_CLI = os.environ.get("LLM_CLI", "llm")
+LLM_TIMEOUT_SECONDS = int(os.environ.get("LLM_TIMEOUT_SECONDS", "300"))
 TELEGRAM_MAX_CHARS = 4000
 
 logging.basicConfig(
@@ -70,7 +70,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("work-agent-bot")
 
-# chat_id -> last claude session_id (resumes the conversation)
+# chat_id -> last agent session_id (resumes the conversation)
 SESSIONS: dict[int, str] = {}
 # chat_id -> path to the live case doc the wizard is writing into
 DOC_PATHS: dict[int, Path] = {}
@@ -179,10 +179,10 @@ def _doc_footer(doc_path: Path) -> str:
     )
 
 
-def _resolve_claude_cli() -> str:
-    """Return an absolute path to the claude executable, or the bare name."""
-    found = shutil.which(CLAUDE_CLI)
-    return found or CLAUDE_CLI
+def _resolve_llm_cli() -> str:
+    """Return an absolute path to the agent CLI executable, or the bare name."""
+    found = shutil.which(LLM_CLI)
+    return found or LLM_CLI
 
 
 def _is_authorized(update: Update) -> bool:
@@ -210,10 +210,10 @@ def _image_content_block(path: Path) -> dict:
     }
 
 
-async def _run_claude_text(prompt: str, session_id: str | None) -> tuple[str, str | None]:
+async def _run_llm_text(prompt: str, session_id: str | None) -> tuple[str, str | None]:
     """Text-only path. Single-shot --output-format json, no streaming needed."""
     cmd = [
-        _resolve_claude_cli(),
+        _resolve_llm_cli(),
         "-p",
         "--output-format", "json",
         "--permission-mode", "bypassPermissions",
@@ -230,16 +230,16 @@ async def _run_claude_text(prompt: str, session_id: str | None) -> tuple[str, st
     )
     try:
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=CLAUDE_TIMEOUT_SECONDS
+            proc.communicate(), timeout=LLM_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        raise RuntimeError(f"claude did not respond within {CLAUDE_TIMEOUT_SECONDS}s")
+        raise RuntimeError(f"agent CLI did not respond within {LLM_TIMEOUT_SECONDS}s")
 
     if proc.returncode != 0:
         err = stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"claude exited {proc.returncode}: {err[:500]}")
+        raise RuntimeError(f"agent CLI exited {proc.returncode}: {err[:500]}")
 
     raw = stdout.decode("utf-8", errors="replace").strip()
     try:
@@ -251,7 +251,7 @@ async def _run_claude_text(prompt: str, session_id: str | None) -> tuple[str, st
     return text.strip(), new_session
 
 
-async def _run_claude_stream(
+async def _run_llm_stream(
     prompt: str,
     session_id: str | None,
     image_paths: list[Path],
@@ -260,7 +260,7 @@ async def _run_claude_stream(
     line-by-line so the OS pipe never backs up, which was the root cause of
     the earlier 5-minute hang."""
     cmd = [
-        _resolve_claude_cli(),
+        _resolve_llm_cli(),
         "-p",
         "--input-format", "stream-json",
         "--output-format", "stream-json",
@@ -339,36 +339,36 @@ async def _run_claude_stream(
     try:
         await asyncio.wait_for(
             asyncio.gather(consume_stdout(), consume_stderr()),
-            timeout=CLAUDE_TIMEOUT_SECONDS,
+            timeout=LLM_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        raise RuntimeError(f"claude did not respond within {CLAUDE_TIMEOUT_SECONDS}s")
+        raise RuntimeError(f"agent CLI did not respond within {LLM_TIMEOUT_SECONDS}s")
 
     await proc.wait()
     if proc.returncode != 0:
         err = stderr_buf.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"claude exited {proc.returncode}: {err[:500]}")
+        raise RuntimeError(f"agent CLI exited {proc.returncode}: {err[:500]}")
 
     return (text or "(empty response)").strip(), new_session
 
 
-async def _run_claude(
+async def _run_llm(
     prompt: str,
     session_id: str | None,
     image_paths: list[Path] | None = None,
 ) -> tuple[str, str | None]:
     """Route text-only vs image turns to the right runner."""
     log.info(
-        "running claude (resume=%s, prompt_len=%d, images=%d)",
+        "running agent CLI (resume=%s, prompt_len=%d, images=%d)",
         session_id,
         len(prompt),
         len(image_paths or []),
     )
     if image_paths:
-        return await _run_claude_stream(prompt, session_id, image_paths)
-    return await _run_claude_text(prompt, session_id)
+        return await _run_llm_stream(prompt, session_id, image_paths)
+    return await _run_llm_text(prompt, session_id)
 
 
 _MD_BOLD = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
@@ -589,17 +589,17 @@ async def _dispatch_prompt(
         prompt = prompt + _doc_footer(DOC_PATHS[chat_id])
 
     try:
-        text, new_session = await _run_claude(
+        text, new_session = await _run_llm(
             prompt, SESSIONS.get(chat_id), image_paths=image_paths
         )
     except FileNotFoundError:
         await update.effective_message.reply_text(
-            "claude CLI not found on PATH. Install it with "
-            "`npm install -g @anthropic-ai/claude-code` and run `claude login`."
+            "Agent CLI not found on PATH. Install your agent CLI, sign it in "
+            "on this machine, and set LLM_CLI in .env if its name differs."
         )
         return
     except Exception as exc:  # noqa: BLE001
-        log.exception("claude invocation failed")
+        log.exception("agent CLI invocation failed")
         await update.effective_message.reply_text(f"Error: {exc}")
         return
 
