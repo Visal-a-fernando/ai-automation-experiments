@@ -76,7 +76,9 @@ Look for the line starting with `(case doc:` after the `---` separator. Extract 
 
 The script that edits the doc:
 
-`python .claude/skills/troubleshooting-wizard/scripts/update_case_doc.py --doc-path "<doc path from footer>" <subcommand> ...`
+`python <skills-dir>/troubleshooting-wizard/scripts/update_case_doc.py --doc-path "<doc path from footer>" <subcommand> ...`
+
+(`<skills-dir>` is the folder your agent loads skills from.)
 
 Sub-commands and when to call them:
 
