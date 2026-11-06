@@ -1,6 +1,6 @@
 # Visal's Work Agent — Starter Pack
 
-A personal AI assistant for your Level 1 IT engineer role. Three skills, two ways to use them, your existing Claude Max subscription powers everything.
+A personal AI assistant for your Level 1 IT engineer role. Three skills, two ways to use them, and the AI subscription you already have powers everything.
 
 ## What's in here
 
@@ -13,30 +13,30 @@ work-agent/
 ├── case-log/                       ← past tickets as PDFs (search later)
 ├── study-plans/                    ← saved learning plans
 ├── README.md                       ← this file
-├── SETUP-claude-code.md            ← personal laptop path (RECOMMENDED)
-└── SETUP-claude-ai.md              ← locked-down work laptop fallback
+├── SETUP-cli-agent.md              ← personal laptop path (RECOMMENDED)
+└── SETUP-web-projects.md           ← locked-down work laptop fallback
 ```
 
 ## Two ways to deploy this
 
-### Path A — Claude Code on your personal laptop (recommended)
+### Path A — an agent CLI on your personal laptop (recommended)
 
-Full power. Skills load automatically when relevant. PDFs save to your filesystem. Your case-log becomes a searchable knowledge base over time. Uses your Max plan, $0 extra cost.
+Full power. Skills load automatically when relevant. PDFs save to your filesystem. Your case-log becomes a searchable knowledge base over time. Runs on your existing subscription, no extra cost.
 
-→ Follow **SETUP-claude-code.md**
+→ Follow **SETUP-cli-agent.md**
 
-### Path B — Claude.ai Projects on a locked-down work laptop (fallback)
+### Path B — web assistant Projects on a locked-down work laptop (fallback)
 
-If you can't install software on the company laptop, you can paste the skill markdown into a Claude.ai Project's "instructions" field. You lose automatic file saving (PDFs come out as downloads instead of auto-saved to case-log), but the conversational behaviour is identical.
+If you can't install software on the company laptop, you can paste the skill markdown into the "instructions" field of a Project in your AI assistant's web app. You lose automatic file saving (PDFs come out as downloads instead of auto-saved to case-log), but the conversational behaviour is identical.
 
-→ Follow **SETUP-claude-ai.md**
+→ Follow **SETUP-web-projects.md**
 
 ## Day one of your new job
 
 Once set up, here's what your first week looks like:
 
 **Monday morning, first ticket arrives:**
-> "Hey Claude, just got a ticket — client says SharePoint search isn't returning recent documents."
+> "Just got a ticket — client says SharePoint search isn't returning recent documents."
 
 → troubleshooting-wizard kicks in, asks diagnostic questions, walks you through it, generates a PDF when done.
 
@@ -53,7 +53,7 @@ Once set up, here's what your first week looks like:
 **Friday afternoon:**
 > "Have I seen anything like this OneDrive sync issue before?"
 
-→ Claude grep's your case-log/ folder and surfaces prior cases.
+→ The agent searches your case-log/ folder and surfaces prior cases.
 
 ## Customising
 
