@@ -69,7 +69,7 @@ def main():
             print(f"[{done}/{TARGET}] £{o.retail_price(pick['cost']):.2f}  "
                   f"imgs {len(pick['images'])}  {listing['title'][:55]}")
         except o.AuthExpired:
-            o.alert("PinFlow seed: Claude auth expired."); sys.exit("AUTH_EXPIRED")
+            o.alert("PinFlow seed: LLM CLI auth expired."); sys.exit("AUTH_EXPIRED")
         except Exception as e:
             print(f"  skip ({type(e).__name__}): {p['title'][:45]}")
     print(f"done: {done} draft products created")
